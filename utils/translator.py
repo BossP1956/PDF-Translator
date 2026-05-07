@@ -2,52 +2,50 @@ import requests
 import time
 
 def parse_pdf_via_api(uploaded_file, api_key):
-    # v4 版本的正式域名 (请根据官方文档确认，通常是如下地址)
-    base_url = "https://mineru.org.cn/api/v4" 
-    upload_url = f"{base_url}/extract"
-    
+    # 官方文档指定的基准地址
+    base_url = "https://mineru.net/api/v1"
     headers = {"Authorization": f"Bearer {api_key}"}
     
     try:
-        # 1. 发起上传任务
-        # v4 接口通常需要 multipart/form-data
+        # 1. 提交任务 (接口: /extract)
+        # 官方要求使用 multipart/form-data
         files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
-        # data 参数可以根据 v4 文档添加，比如 {"is_ocr": True}
-        response = requests.post(upload_url, headers=headers, files=files, timeout=45)
+        # data 参数根据文档可选，通常传空或指定特定功能
+        submit_res = requests.post(f"{base_url}/extract", headers=headers, files=files, timeout=60)
         
-        if response.status_code != 200:
-            return f"v4 API 错误: 状态码 {response.status_code}, 内容 {response.text}"
+        if submit_res.status_code != 200:
+            return f"提交失败 ({submit_res.status_code}): {submit_res.json().get('msg', '未知错误')}"
         
-        res_json = response.json()
-        # 注意：v4 的返回结构可能在 data.extract_id 或 data.task_id
-        task_id = res_json.get("data", {}).get("task_id") or res_json.get("data", {}).get("extract_id")
-        
+        task_id = submit_res.json().get("data", {}).get("task_id")
         if not task_id:
-            return f"解析失败：未获取到任务ID。完整响应: {res_json}"
+            return "解析失败：未能获取任务ID"
 
-        # 2. 轮询获取结果
-        # v4 的查询接口可能是 /extract-result/{task_id} 或 /task/{task_id}
-        status_url = f"{base_url}/extract-result/{task_id}"
-        
-        for i in range(60): # 最多等待 120 秒
-            time.sleep(2)
-            status_res = requests.get(status_url, headers=headers)
+        # 2. 轮询任务状态 (接口: /task-status)
+        # 注意：官方文档查询状态通常带 task_id 参数
+        max_retries = 30
+        for _ in range(max_retries):
+            time.sleep(3) # 官方解析较重，建议间隔3秒
+            status_res = requests.get(f"{base_url}/task-status", headers=headers, params={"task_id": task_id})
+            
             if status_res.status_code != 200:
                 continue
-                
-            result_json = status_res.json()
-            data = result_json.get("data", {})
-            status = data.get("status")
+            
+            res_data = status_res.json().get("data", {})
+            status = res_data.get("status")
             
             if status == "success":
-                # v4 版本解析成功后，markdown 内容通常在 data.full_markdown 中
-                return data.get("full_markdown") or data.get("markdown") or "解析完成但未找到内容"
-            elif status == "failed":
-                return f"MinerU v4 解析任务失败: {data.get('error_msg')}"
+                # 官方通常返回 markdown 内容或下载链接
+                # 如果返回的是 md 内容直接使用，如果返回的是 url 则需再次 get
+                content = res_data.get("markdown_content")
+                if not content and res_data.get("full_zip_url"):
+                    # 如果官方只给压缩包链接，这里需要处理，但通常 API 直接给 content
+                    return "解析成功，但 API 仅返回了压缩包，请检查文档配置"
+                return content
             
-            # 如果还在 processing，继续循环
-            
-        return "解析任务超时，请重试。"
+            if status == "failed":
+                return f"MinerU 解析失败: {res_data.get('error_msg', '未知错误')}"
+        
+        return "解析超时，文件可能过大"
         
     except Exception as e:
-        return f"v4 API 调用异常: {str(e)}"
+        return f"API 调用异常: {str(e)}"
