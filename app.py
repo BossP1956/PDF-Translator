@@ -3,68 +3,70 @@ import time
 from utils.parser import parse_pdf_via_api
 from utils.translator import baidu_translate
 
-st.set_page_config(page_title="MinerU PDF 翻译助手", layout="wide")
-st.title("📄 MinerU PDF 保持格式翻译官")
+st.set_page_config(page_title="MinerU 翻译官", layout="wide")
+st.title("📄 MinerU PDF 保持格式在线翻译")
 
-# 侧边栏配置
+# 侧边栏
 with st.sidebar:
-    st.header("API 密钥配置")
-    # 错误修复：type 必须是 "password"，不要把 key 粘在这里
-    mineru_key = st.text_input("MinerU API Key", type="password", help="从 mineru.org.cn 获取的 Token")
-    baidu_id = st.text_input("Baidu AppID", type="password")
-    baidu_key = st.text_input("Baidu Secret Key", type="password")
-    target_lang = st.selectbox("目标语言", ["zh", "en", "jp"], index=0)
+    st.header("1. API Key 配置")
+    m_key = st.text_input("MinerU API Token", type="password")
+    b_id = st.text_input("Baidu AppID", type="password")
+    b_key = st.text_input("Baidu SecretKey", type="password")
+    
+    st.header("2. 翻译设置")
+    target_lang = st.selectbox("目标语言", ["zh", "en", "jp", "kor"], index=0)
+    st.info("提示：百度免费版 API 每秒只能请求 1 次，翻译较慢请见谅。")
 
-uploaded_file = st.file_uploader("上传 PDF 文件", type="pdf")
+# 主界面
+uploaded_file = st.file_uploader("点击上传 PDF 文件", type="pdf")
 
-if st.button("开始转换并翻译") and uploaded_file:
-    if not (mineru_key and baidu_id and baidu_key):
-        st.error("请在左侧边栏填写所有的 API 密钥！")
-    else:
-        # --- 步骤 1: 解析 ---
-        with st.status("正在调用 MinerU 解析文档结构...") as status:
-            md_content = parse_pdf_via_api(uploaded_file, mineru_key)
-            if "错误" in md_content or not md_content:
-                status.update(label="解析失败", state="error")
-                st.error(md_content)
-                st.stop()
-            status.update(label="解析成功！正在准备翻译...", state="complete")
+if st.button("🚀 开始解析并翻译") and uploaded_file:
+    if not (m_key and b_id and b_key):
+        st.warning("请先填好侧边栏的所有 API Key")
+        st.stop()
 
-        # --- 步骤 2: 翻译 ---
-        translated_lines = []
-        lines = md_content.split('\n')
+    # 步骤 1：调用 MinerU
+    with st.status("正在通过 MinerU 解析 PDF 结构...") as status:
+        md_content = parse_pdf_via_api(uploaded_file, m_key)
+        if not md_content or "错误" in md_content or "失败" in md_content:
+            st.error(md_content)
+            st.stop()
+        status.update(label="解析成功！正在启动翻译引擎...", state="complete")
+
+    # 步骤 2：翻译 Markdown
+    translated_lines = [] # 提前初始化，防止 NameError
+    lines = md_content.split('\n')
+    
+    with st.status("正在进行格式保留翻译...") as status:
+        progress_bar = st.progress(0)
+        total_lines = len(lines)
         
-        with st.status("正在逐句翻译（保持 Markdown 格式）...") as status:
-            pbar = st.progress(0)
-            total = len(lines)
+        for i, line in enumerate(lines):
+            # 基础过滤：不翻译图片、链接、代码块标记
+            strip_line = line.strip()
+            if strip_line and not strip_line.startswith('![') and not strip_line.startswith('```'):
+                # 百度 QPS 限制：每秒 1 次
+                translated_text = baidu_translate(line, b_id, b_key, to_lang=target_lang)
+                translated_lines.append(translated_text)
+                time.sleep(1.1) 
+            else:
+                translated_lines.append(line)
             
-            for i, line in enumerate(lines):
-                # 更新进度
-                pbar.progress((i + 1) / total)
-                
-                # 过滤：只翻译文本，不翻译图片、链接和空行
-                clean_line = line.strip()
-                if clean_line and not clean_line.startswith('![') and not clean_line.startswith('<'):
-                    # 百度 API 免费版 QPS 为 1，必须加延迟
-                    try:
-                        trans = baidu_translate(clean_line, baidu_id, baidu_key, to_lang=target_lang)
-                        translated_lines.append(trans)
-                        time.sleep(1.1) # 略大于 1 秒以确保安全
-                    except Exception as e:
-                        translated_lines.append(line) # 翻译失败保留原文
-                else:
-                    translated_lines.append(line)
-            
-            status.update(label="全部翻译完成！", state="complete")
+            # 更新进度条
+            progress_bar.progress((i + 1) / total_lines)
+        
+        status.update(label="全部翻译完成！", state="complete")
 
-        final_md = "\n".join(translated_lines)
+    # 最终汇总
+    final_md = "\n".join(translated_lines)
 
-        # --- 步骤 3: 展示 ---
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("原始结构")
-            st.text_area("Source Markdown", md_content, height=500)
-        with col2:
-            st.subheader("翻译预览")
-            st.markdown(final_md)
-            st.download_button("📥 下载翻译后的 Markdown", final_md, file_name="translated_doc.md")
+    # 步骤 3：结果展示
+    st.divider()
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("原文预览 (Markdown)")
+        st.text_area("Source", md_content, height=400)
+    with col2:
+        st.subheader("翻译预览")
+        st.markdown(final_md)
+        st.download_button("💾 下载 Markdown 译文", final_md, file_name="translated.md")
