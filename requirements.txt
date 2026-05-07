@@ -1,4 +1,2 @@
 streamlit
-magic-pdf[full]
 requests
-paddlepaddle # MinerU 默认模型依赖
