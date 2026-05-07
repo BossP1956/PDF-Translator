@@ -2,45 +2,41 @@ import requests
 import time
 
 def parse_pdf_via_api(uploaded_file, api_key):
-    """
-    通用 MinerU API 调用逻辑
-    注意：这里的 URL 是示例，请替换为你实际申请到的 API Endpoint
-    """
-    api_url = "https://mineru.org.cn/api/v1/extract" # 请根据官方确认
+    base_url = "https://mineru.net/api/v1"
     headers = {"Authorization": f"Bearer {api_key}"}
     
     try:
-        # 上传文件
+        # 1. 提交任务
         files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
-        response = requests.post(api_url, headers=headers, files=files, timeout=30)
+        # data 参数可以传递如 {"is_ocr": True} 等，这里保持默认
+        submit_res = requests.post(f"{base_url}/extract", headers=headers, files=files, timeout=60)
         
-        if response.status_code != 200:
-            return f"API 错误: 状态码 {response.status_code}, 内容 {response.text}"
+        if submit_res.status_code != 200:
+            msg = submit_res.json().get("msg", "未知错误")
+            return f"提交错误: {msg} (请确认已在mineru.net订阅API服务)"
         
-        res_json = response.json()
-        task_id = res_json.get("data", {}).get("task_id")
-        
+        task_id = submit_res.json().get("data", {}).get("task_id")
         if not task_id:
-            return "解析失败：未获取到任务 ID"
+            return "解析失败：未获得 task_id"
 
-        # 轮询获取结果
-        for _ in range(30): # 最多等待 60 秒
-            time.sleep(2)
-            status_url = f"https://mineru.org.cn/api/v1/task/{task_id}"
-            status_res = requests.get(status_url, headers=headers)
-            status_json = status_res.json()
+        # 2. 轮询状态
+        for i in range(40):  # 最多等待 120 秒
+            time.sleep(3)
+            status_res = requests.get(f"{base_url}/task-status", headers=headers, params={"task_id": task_id})
             
-            # 增加安全检查
-            if status_json.get("data") is None:
+            if status_res.status_code != 200:
                 continue
                 
-            state = status_json["data"].get("status")
-            if state == "success":
-                return status_json["data"].get("markdown_content", "解析内容为空")
-            elif state == "failed":
-                return "MinerU 云端解析失败"
-        
-        return "解析超时"
+            res_data = status_res.json().get("data", {})
+            status = res_data.get("status")
+            
+            if status == "success":
+                # 获取结果内容
+                return res_data.get("markdown_content", "解析结果为空")
+            elif status == "failed":
+                return f"MinerU 解析失败: {res_data.get('error_msg', '内部错误')}"
+                
+        return "解析超时：文档较大，请稍后在官网查看结果"
         
     except Exception as e:
-        return f"API 调用异常: {str(e)}"
+        return f"解析异常: {str(e)}"
