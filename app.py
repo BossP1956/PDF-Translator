@@ -6,7 +6,7 @@ st.title("📄 MinerU API 轻量化翻译助手")
 
 with st.sidebar:
     st.header("API 密钥配置")
-    mineru_key = st.text_input("MinerU API Key", type="eyJ0eXBlIjoiSldUIiwiYWxnIjoiSFM1MTIifQ.eyJqdGkiOiI2OTYwMjI1NCIsInJvbCI6IlJPTEVfUkVHSVNURVIiLCJpc3MiOiJPcGVuWExhYiIsImlhdCI6MTc3ODE1OTQyOCwiY2xpZW50SWQiOiJsa3pkeDU3bnZ5MjJqa3BxOXgydyIsInBob25lIjoiIiwib3BlbklkIjpudWxsLCJ1dWlkIjoiY2E4YTI5OTMtNTk5Ni00NzUzLWJjMWYtYzFhNTA0ZTQyOGNjIiwiZW1haWwiOiIiLCJleHAiOjE3ODU5MzU0Mjh9.SqcPYzQKE_CNbEZGAd8c9ab8HE1WuFUwB1s_hYX__IFGn33w4l9RSrjNsZLR7AteF-iwqkJ14200r74XUicZGg")
+    mineru_key = st.text_input("MinerU API Key", type="password")
     baidu_id = st.text_input("Baidu AppID", type="password")
     baidu_key = st.text_input("Baidu Secret Key", type="password")
 
