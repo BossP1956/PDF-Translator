@@ -20,10 +20,16 @@ with st.sidebar:
 # 主界面
 uploaded_file = st.file_uploader("点击上传 PDF 文件", type="pdf")
 
+# app.py 关键片段不需要大改，确保逻辑如下：
 if st.button("🚀 开始解析并翻译") and uploaded_file:
-    if not (m_key and b_id and b_key):
-        st.warning("请先填好侧边栏的所有 API Key")
-        st.stop()
+    with st.status("正在调用 MinerU v4 高级解析引擎...") as status:
+        md_content = parse_pdf_via_api(uploaded_file, m_key)
+        if not md_content or "失败" in md_content or "异常" in md_content:
+            st.error(md_content)
+            st.stop()
+        status.update(label="文档解析并提取成功！开始翻译...", state="complete")
+    
+    # 后续翻译逻辑保持不变...
 
     # 步骤 1：调用 MinerU
     with st.status("正在通过 MinerU 解析 PDF 结构...") as status:
