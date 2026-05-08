@@ -2,61 +2,56 @@ import hashlib
 import random
 import requests
 import re
+import time
 
 def mask_markdown(md_text):
     """
-    终极保护机制：保护公式、图片、表格
+    使用全角中文括号标识符，百度翻译对该格式保留度极高。
+    顺序极度重要：先屏蔽最大的块，再屏蔽小的。
     """
     placeholders = {}
     counter = 0
 
     def replacer(match):
         nonlocal counter
-        # 使用全角方括号，百度翻译通常不会破坏这种中文标点包裹的内容
-        core_id = f"PH_{counter}"
-        key = f"【{core_id}】"
-        placeholders[core_id] = match.group(0)
+        key = f"【PH_{counter}】"  # 使用全角括号和下划线
+        placeholders[counter] = match.group(0)
         counter += 1
-        return f"\n\n{key}\n\n" if "\n" in match.group(0) else f" {key} "
+        return key
 
-    # 1. 保护 Markdown 表格 (连续的包含 | 的行)
-    # MinerU 输出的表格通常每行都包含 |
-    md_text = re.sub(r'(?:^[ \t]*\|.*\|[ \t]*\n?)+', replacer, md_text, flags=re.MULTILINE)
-
-    # 2. 保护 HTML 表格/标签
-    md_text = re.sub(r'<table.*?>.*?</table>', replacer, md_text, flags=re.DOTALL)
-    md_text = re.sub(r'<.*?>', replacer, md_text, flags=re.DOTALL)
-
-    # 3. 保护多行数学环境 \begin{...} ... \end{...}
+    # 1. 保护代码块 (防止代码里的符号干扰)
+    md_text = re.sub(r'```.*?```', replacer, md_text, flags=re.DOTALL)
+    
+    # 2. 保护复杂 LaTeX 环境 (\begin{...} ... \end{...})
     md_text = re.sub(r'\\begin\{.*?\}.*?\\end\{.*?\}', replacer, md_text, flags=re.DOTALL)
     
-    # 4. 保护块级公式 $$ ... $$
+    # 3. 保护块级公式 ($$ ... $$)
     md_text = re.sub(r'\$\$.*?\$\$', replacer, md_text, flags=re.DOTALL)
     
-    # 5. 保护行内公式 $ ... $
+    # 4. 保护行内公式 ($ ... $)
     md_text = re.sub(r'(?<!\$)\$.*?\$(?!\$)', replacer, md_text)
     
-    # 6. 保护图片 ![alt](url)
+    # 5. 保护图片 ![alt](url)
     md_text = re.sub(r'!\[.*?\]\(.*?\)', replacer, md_text)
+    
+    # 6. 保护 HTML 标签
+    md_text = re.sub(r'<.*?>', replacer, md_text, flags=re.DOTALL)
 
     return md_text, placeholders
 
 def unmask_markdown(text, placeholders):
     """
-    智能还原：无视翻译引擎加入的空格和大小写变化
+    使用正则表达式还原标识符，自动容错百度翻译可能添加的空格。
+    例如：【 PH _ 8 】 -> 【PH_8】
     """
-    def unmask_replacer(match):
-        # 提取核心 ID，去除可能被百度加入的空格，并转大写
-        # 例如：把 " PH _ 5 " 变成 "PH_5"
-        core_id = match.group(1).replace(" ", "").upper()
-        # 从字典中找回原始公式/表格，如果找不到（极端情况），就原样保留
-        return placeholders.get(core_id, match.group(0))
-
-    # 使用正则模糊匹配掩码：【 任意空格 PH_数字 任意空格 】
-    pattern = r'【\s*(PH\s*_\s*\d+)\s*】'
-    restored_text = re.sub(pattern, unmask_replacer, text, flags=re.IGNORECASE)
+    # 匹配模式：【 任意空格 PH 任意空格 _ 任意空格 数字 任意空格 】
+    pattern = re.compile(r'【\s*PH\s*_\s*(\d+)\s*】')
     
-    return restored_text
+    def recover(match):
+        idx = int(match.group(1))
+        return placeholders.get(idx, match.group(0))
+
+    return pattern.sub(recover, text)
 
 def baidu_translate(text, appid, secret_key, from_lang='auto', to_lang='zh'):
     if not text.strip(): return text
