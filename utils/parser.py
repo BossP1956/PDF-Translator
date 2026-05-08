@@ -1,82 +1,76 @@
 import requests
 import time
-import zipfile
-import io
 
-def parse_pdf_via_api(uploaded_file, api_key=None):
-    # Agent 接口地址
-    url = "https://mineru.net/api/v1/agent/parse/file"
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+def parse_pdf_via_api(uploaded_file):
+    """
+    按照 MinerU 官方文档的 3步法(签名上传) 解析文件
+    """
+    base_url = "https://mineru.net/api/v1/agent"
     
     try:
-        # 1. 提交文件
-        # 注意：这里 file_name 必须通过 params (URL 参数) 传递
-        params = {
-            "file_name": uploaded_file.name,
-            "model_version": "pipeline"
+        # ==========================================
+        # 第一步：申请签名上传 URL
+        # ==========================================
+        # 提取文件名
+        file_name = uploaded_file.name
+        
+        payload = {
+            "file_name": file_name,
+            "language": "ch",          # 默认中文
+            "enable_table": True,      # 开启表格识别
+            "is_ocr": False,           # Agent 模式默认为 False
+            "enable_formula": True     # 开启公式识别
         }
         
-        # 二进制文件流
-        files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
+        # 发送 JSON 请求获取上传链接
+        init_res = requests.post(f"{base_url}/parse/file", json=payload)
+        init_data = init_res.json()
         
-        # 核心修改：使用 params 传参，files 传文件
-        response = requests.post(
-            url, 
-            headers=headers, 
-            params=params,  # 移到这里
-            files=files, 
-            timeout=60
-        )
-        
-        # 解析返回结果
-        res_json = response.json()
-        
-        # 提取 Task ID
-        task_id = res_json.get("data", {}).get("task_id") or res_json.get("task_id")
-        
-        if not task_id:
-            msg = res_json.get("msg") or res_json.get("message") or str(res_json)
-            # 如果依然报错，可能是字段名大小写问题，我们尝试打印完整响应
-            return f"提交失败。服务器返回: {msg}"
-
-        # 2. 轮询状态
-        status_url = "https://mineru.net/api/v1/agent/parse/status"
-        
-        for _ in range(40):
-            time.sleep(3)
-            status_res = requests.get(status_url, headers=headers, params={"task_id": task_id})
+        if init_data.get("code") != 0:
+            return f"获取上传链接失败: {init_data.get('msg')}"
             
-            if status_res.status_code != 200:
+        task_id = init_data["data"]["task_id"]
+        file_url = init_data["data"]["file_url"]
+        
+        # ==========================================
+        # 第二步：将文件流 PUT 到 OSS
+        # ==========================================
+        # 使用 getvalue() 获取文件的 bytes 二进制流
+        put_res = requests.put(file_url, data=uploaded_file.getvalue())
+        if put_res.status_code not in (200, 201):
+            return f"文件上传 OSS 失败, 状态码: {put_res.status_code}"
+            
+        # ==========================================
+        # 第三步：轮询等待结果
+        # ==========================================
+        timeout = 180  # 最长等待 3 分钟
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            time.sleep(3) # 每3秒查一次
+            
+            poll_res = requests.get(f"{base_url}/parse/{task_id}")
+            poll_data = poll_res.json()
+            
+            if poll_data.get("code") != 0:
                 continue
                 
-            status_json = status_res.json()
-            res_data = status_json.get("data", {})
-            status = res_data.get("status")
+            state = poll_data["data"]["state"]
             
-            if status == "success":
-                # 尝试提取结果
-                content = res_data.get("markdown_content")
-                if content: return content
+            if state == "done":
+                # 解析完成，获取 markdown 下载链接
+                md_url = poll_data["data"]["markdown_url"]
+                # 直接读取并返回 md 文本
+                md_text = requests.get(md_url).text
+                return md_text
                 
-                # 兼容不同字段名
-                md_url = res_data.get("markdown_url") or res_data.get("download_url")
-                if md_url:
-                    return requests.get(md_url).text
+            elif state == "failed":
+                err_msg = poll_data["data"].get("err_msg", "未知错误")
+                return f"解析失败: {err_msg}"
                 
-                # 兼容 Zip 包
-                zip_url = res_data.get("full_zip_url")
-                if zip_url:
-                    z_res = requests.get(zip_url)
-                    with zipfile.ZipFile(io.BytesIO(z_res.content)) as z:
-                        for f in z.namelist():
-                            if f.endswith('.md'): return z.read(f).decode('utf-8')
-                
-                return "解析成功，但未能提取到内容"
+            # 其他状态如 "waiting-file", "pending", "running" 继续循环
             
-            if status == "failed":
-                return f"解析失败: {res_data.get('error_msg', '未知原因')}"
-        
-        return "轮询超时"
+        return "解析超时，请稍后再试或检查文件是否过大"
         
     except Exception as e:
-        return f"接口异常: {str(e)}"
+        return f"系统调用异常: {str(e)}"
