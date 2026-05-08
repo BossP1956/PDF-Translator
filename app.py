@@ -55,25 +55,63 @@ if st.button("🚀 开始解析并翻译"):
             st.stop()
         status.update(label="解析完成！获取到结构化数据。", state="complete")
 
-    # --- 阶段 2：翻译 ---
-    translated_lines = []
-    lines = md_content.split('\n')
-    total_lines = len(lines)
+    # --- 阶段 2：翻译 (批量提速版) ---
+    translated_lines = [""] * total_lines  # 预先为每一行占位
     
-    with st.status("正在逐句翻译并重组格式...") as status:
-        pbar = st.progress(0)
-        for i, line in enumerate(lines):
-            pbar.progress((i + 1) / total_lines)
-            clean_line = line.strip()
+    # 1. 提取需要翻译的行，进行分块拼接
+    chunks = []
+    current_chunk = []
+    current_len = 0
+    MAX_CHAR = 1500  # 百度一次请求建议不超过 2000 字符，设置 1500 最安全
+
+    for i, line in enumerate(lines):
+        clean_line = line.strip()
+        # 过滤不需要翻译的格式 (图片链接、代码块标记、表格)
+        if clean_line and not clean_line.startswith('![') and not clean_line.startswith('```') and '|' not in clean_line:
+            current_chunk.append((i, line))
+            current_len += len(line)
             
-            # 保留原格式标记，只翻译普通文本
-            if clean_line and not clean_line.startswith('![') and not clean_line.startswith('```') and '|' not in clean_line:
-                result = baidu_translate(line, baidu_id, baidu_key, to_lang=target_lang[1])
-                translated_lines.append(result)
-                time.sleep(1.2) # 百度免费API必须延迟
+            # 如果当前块字符数达到上限，就打包存入 chunks
+            if current_len > MAX_CHAR:
+                chunks.append(current_chunk)
+                current_chunk = []
+                current_len = 0
+        else:
+            # 不需要翻译的（如空行、表格），直接原样放回对应位置
+            translated_lines[i] = line
+            
+    # 把最后剩下的一小块也加进去
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    # 2. 批量发送给百度 API
+    with st.status(f"正在进行批量极速翻译 (共 {len(chunks)} 批次)...") as status:
+        pbar = st.progress(0)
+        
+        for c_idx, chunk in enumerate(chunks):
+            # 将几十行文字合并为一个长字符串，用 \n 隔开
+            text_to_trans = "\n".join([item[1] for item in chunk])
+            
+            # 发起一次请求（等于原来发送几十次）
+            translated_block = baidu_translate(text_to_trans, baidu_id, baidu_key, to_lang=target_lang[1])
+            
+            # 将翻译回来的大段落重新切分成行
+            trans_parts = translated_block.split('\n')
+            
+            # 将翻译结果精准填回原文的行号位置
+            if len(trans_parts) == len(chunk):
+                for k, (orig_idx, _) in enumerate(chunk):
+                    translated_lines[orig_idx] = trans_parts[k]
             else:
-                translated_lines.append(line)
-        status.update(label="全部翻译完毕！", state="complete")
+                # 极端情况防错：如果百度吞了换行符，将整段放入块的首行
+                translated_lines[chunk[0][0]] = translated_block
+                for orig_idx, _ in chunk[1:]:
+                    translated_lines[orig_idx] = ""
+            
+            pbar.progress((c_idx + 1) / len(chunks))
+            time.sleep(0.2)  # 现在是每【批】等待1.2秒，而不是每行！
+            
+        status.update(label="极速翻译完毕！", state="complete")
 
     # --- 阶段 3：展示与导出 ---
     final_md = "\n".join(translated_lines)
