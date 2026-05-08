@@ -56,31 +56,24 @@ if st.button("🚀 开始解析并翻译"):
         status.update(label="解析完成！获取到结构化数据。", state="complete")
 
     # --- 阶段 2：翻译 ---
-# 优化后的翻译循环
     translated_lines = []
-    buffer_text = [] # 用于缓存需要合并的段落
+    lines = md_content.split('\n')
+    total_lines = len(lines)
     
-    def flush_buffer():
-        """将缓存的段落一次性翻译并清空"""
-        if not buffer_text: return
-        full_text = "\n".join(buffer_text)
-        # 一次性调用翻译
-        result = baidu_translate(full_text, baidu_id, baidu_key, to_lang=target_lang[1])
-        # 将结果按行切分回原来的格式
-        translated_lines.extend(result.split('\n'))
-        buffer_text.clear()
-
-    with st.status("正在高效批量翻译中...") as status:
-        for line in lines:
-            # 判断是否为需要“保持格式”的特殊行
-            if line.strip() == "" or line.startswith(('#', '|', '![', '```', '-', '*')):
-                flush_buffer() # 先翻译之前的缓存
-                translated_lines.append(line) # 特殊行直接入库，不翻译
+    with st.status("正在逐句翻译并重组格式...") as status:
+        pbar = st.progress(0)
+        for i, line in enumerate(lines):
+            pbar.progress((i + 1) / total_lines)
+            clean_line = line.strip()
+            
+            # 保留原格式标记，只翻译普通文本
+            if clean_line and not clean_line.startswith('![') and not clean_line.startswith('```') and '|' not in clean_line:
+                result = baidu_translate(line, baidu_id, baidu_key, to_lang=target_lang[1])
+                translated_lines.append(result)
+                time.sleep(1.2) # 百度免费API必须延迟
             else:
-                buffer_text.append(line) # 缓存普通文本行
-                if len(buffer_text) >= 15: # 每 5 行合并翻译一次
-                    flush_buffer()
-        flush_buffer() # 处理最后剩下的文本
+                translated_lines.append(line)
+        status.update(label="全部翻译完毕！", state="complete")
 
     # --- 阶段 3：展示与导出 ---
     final_md = "\n".join(translated_lines)
