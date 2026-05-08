@@ -78,7 +78,7 @@ if st.button("🚀 开始解析并翻译"):
                 translated_lines.append(line) # 特殊行直接入库，不翻译
             else:
                 buffer_text.append(line) # 缓存普通文本行
-                if len(buffer_text) >= 5: # 每 5 行合并翻译一次
+                if len(buffer_text) >= 15: # 每 5 行合并翻译一次
                     flush_buffer()
         flush_buffer() # 处理最后剩下的文本
 
