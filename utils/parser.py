@@ -1,59 +1,59 @@
 import requests
 import time
-import zipfile
-import io
 
-def parse_pdf_via_api(uploaded_file, api_key):
-    # 根据截图更新为 v4 接口
-    base_url = "https://mineru.net/api/v4"
-    headers = {"Authorization": f"Bearer {api_key}"}
+def parse_pdf_via_api(uploaded_file, api_key=None):
+    # 使用对比图右侧的 Agent 接口，支持文件上传
+    # 注意：Agent 接口通常使用 v1 路径
+    base_url = "https://mineru.net/api/v1/agent/parse/file"
     
     try:
-        # 1. 提交任务 (接口: /extract/task)
+        # 1. 提交文件
         files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
-        # 精准解析模式通常可以带一些参数，这里保持默认
-        submit_res = requests.post(f"{base_url}/extract/task", headers=headers, files=files, timeout=60)
+        # Agent 接口通常不需要 Authorization Header (根据对比图)
+        # 但如果失效，可以保留 headers = {"Authorization": f"Bearer {api_key}"}
+        
+        submit_res = requests.post(base_url, files=files, timeout=60)
         
         if submit_res.status_code != 200:
-            return f"提交失败 ({submit_res.status_code}): {submit_res.text}"
+            return f"Agent 接口提交失败 ({submit_res.status_code}): {submit_res.text}"
         
-        task_id = submit_res.json().get("data", {}).get("task_id")
+        res_json = submit_res.json()
+        # 获取任务 ID 用于轮询
+        task_id = res_json.get("data", {}).get("task_id")
+        
         if not task_id:
-            return "解析失败：未获取到任务 ID"
+            return f"未能获取任务ID: {res_json.get('msg')}"
 
-        # 2. 轮询任务状态
-        # 根据 v4 规范，查询接口通常是 /extract/task/{task_id}
-        status_url = f"{base_url}/extract/task/{task_id}"
+        # 2. 轮询状态
+        # 根据通用规范，Agent 的状态查询通常在 /agent/parse/status 或类似路径
+        # 如果对比图没写，通常是 base_url 替换最后一段
+        status_url = "https://mineru.net/api/v1/agent/parse/status"
         
-        for _ in range(50): # 最多等待 150 秒
+        for _ in range(30):
             time.sleep(3)
-            status_res = requests.get(status_url, headers=headers)
+            status_res = requests.get(status_url, params={"task_id": task_id})
             if status_res.status_code != 200: continue
             
-            res_data = status_res.json().get("data", {})
-            status = res_data.get("status")
+            status_data = status_res.json().get("data", {})
+            status = status_data.get("status")
             
             if status == "success":
-                # 3. 获取下载链接并解压提取 Markdown
-                # v4 成功后会返回 full_zip_url
-                zip_url = res_data.get("full_zip_url")
-                if not zip_url:
-                    return "解析成功，但未找到结果下载链接"
+                # Agent 接口通常直接在数据里返回 markdown_content 或一个 md 链接
+                content = status_data.get("markdown_content")
+                if content:
+                    return content
                 
-                # 下载 Zip 包内容
-                zip_res = requests.get(zip_url)
-                with zipfile.ZipFile(io.BytesIO(zip_res.content)) as z:
-                    # 遍历压缩包，寻找 .md 后缀的文件
-                    for file_info in z.infolist():
-                        if file_info.filename.endswith('.md'):
-                            with z.open(file_info) as f:
-                                return f.read().decode('utf-8')
-                return "解析成功，但在结果包中未找到 Markdown 文件"
+                # 如果返回的是链接，则下载它
+                md_url = status_data.get("markdown_url")
+                if md_url:
+                    return requests.get(md_url).text
+                    
+                return "解析成功但未提取到文本"
             
             if status == "failed":
-                return f"MinerU 解析失败: {res_data.get('error_msg')}"
+                return "Agent 解析失败"
                 
         return "解析超时"
         
     except Exception as e:
-        return f"程序异常: {str(e)}"
+        return f"Agent 接口异常: {str(e)}"
