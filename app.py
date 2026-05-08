@@ -68,18 +68,28 @@ if st.button("🚀 开始解析并翻译"):
             translated_lines = [""] * len(lines)
             
             chunks, current_chunk, current_len = [], [], 0
+            
             for i, line in enumerate(lines):
                 clean = line.strip()
-                if clean and not clean.startswith('|'):
+                
+                # 判断当前行是否完全是 Markdown 表格，或者是占位符本身
+                is_md_table = clean.startswith('|')
+                is_pure_placeholder = re.fullmatch(r'__PH_\d+__', clean)
+                
+                # 如果是有意义的纯文本，就加入翻译块
+                if clean and not is_md_table and not is_pure_placeholder:
                     current_chunk.append((i, line))
                     current_len += len(line)
                     if current_len > 1500:
                         chunks.append(current_chunk)
                         current_chunk, current_len = [], 0
                 else:
+                    # 表格行、纯掩码行、空行直接保留原样，绝不发给百度！
                     translated_lines[i] = line
+                    
             if current_chunk: chunks.append(current_chunk)
 
+            # 批量发送给百度 API
             pbar = st.progress(0.0)
             for c_idx, chunk in enumerate(chunks):
                 text_block = "\n".join([item[1] for item in chunk])
@@ -97,14 +107,15 @@ if st.button("🚀 开始解析并翻译"):
                 time.sleep(1.2)
 
             final_masked_md = "\n".join(translated_lines)
-            # 还原公式和图片
+            
+            # 还原公式、HTML表格和图片
             final_md = unmask_markdown(final_masked_md, ph_dict)
             
-            # 将翻译后的 Markdown 覆盖写入沙盒中的文件
+            # 写入沙盒供 Pandoc 使用
             with open(md_path, 'w', encoding='utf-8') as f:
                 f.write(final_md)
                 
-            status.update(label="翻译完毕，原格式已恢复！", state="complete")
+            status.update(label="翻译完毕，表格与公式已恢复！", state="complete")
 
         # --- 阶段 3：生成终极 Word ---
         with st.spinner("Pandoc 正在将图片和公式封装进 Word..."):
