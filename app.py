@@ -61,33 +61,30 @@ if st.button("🚀 开始解析并翻译"):
                 
             status.update(label="资源提取成功！", state="complete")
 
-        # --- 阶段 2：保护与极速翻译 ---
+# --- 阶段 2：保护与极速翻译 ---
         with st.status("正在进行保护性极速翻译...") as status:
             masked_md, ph_dict = mask_markdown(source_md)
             lines = masked_md.split('\n')
             translated_lines = [""] * len(lines)
             
             chunks, current_chunk, current_len = [], [], 0
-            
             for i, line in enumerate(lines):
                 clean = line.strip()
-                
-                # 判断当前行是否完全是 Markdown 表格，或者是占位符本身
-                is_md_table = clean.startswith('|')
-                is_pure_placeholder = re.fullmatch(r'__PH_\d+__', clean)
-                
-                # 如果是有意义的纯文本，就加入翻译块
-                if clean and not is_md_table and not is_pure_placeholder:
+                # 简化判断：只要不是空行，就加入翻译块。
+                # 因为表格、公式、图片已经被包裹成了 【PH_X】，百度只会原样返回它！
+                if clean:
                     current_chunk.append((i, line))
                     current_len += len(line)
                     if current_len > 1500:
                         chunks.append(current_chunk)
                         current_chunk, current_len = [], 0
                 else:
-                    # 表格行、纯掩码行、空行直接保留原样，绝不发给百度！
                     translated_lines[i] = line
                     
             if current_chunk: chunks.append(current_chunk)
+
+            # --- 下方的 pbar 循环调用百度 API 的代码保持不变 ---
+            # ...
 
             # 批量发送给百度 API
             pbar = st.progress(0.0)
