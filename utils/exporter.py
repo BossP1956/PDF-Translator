@@ -1,6 +1,7 @@
 import io
+import docx  # 必须导入 docx 才能使用 docx.shared
 from docx import Document
-from docx.shared import Pt
+from docx.shared import Pt, RGBColor # 直接从共享模块导入 RGBColor
 from docx.oxml.ns import qn
 
 def create_word_from_md(translated_lines):
@@ -18,7 +19,7 @@ def create_word_from_md(translated_lines):
         if not line:
             continue
             
-        # 简单处理 Markdown 标题
+        # 处理 Markdown 标题
         if line.startswith('# '):
             doc.add_heading(line[2:], level=1)
         elif line.startswith('## '):
@@ -28,14 +29,15 @@ def create_word_from_md(translated_lines):
         # 处理列表项
         elif line.startswith('- ') or line.startswith('* '):
             doc.add_paragraph(line[2:], style='List Bullet')
-        # 处理表格分隔符和图片占位符
+        # 处理表格分隔符和图片占位符 (使用修正后的 RGBColor 导入)
         elif line.startswith('|') or line.startswith('!['):
             p = doc.add_paragraph(line)
-            p.runs[0].font.color.rgb = docx.shared.RGBColor(128, 128, 128) # 灰色显示非文本
+            # 修正：直接使用导入的 RGBColor
+            p.runs[0].font.color.rgb = RGBColor(128, 128, 128) 
         else:
             doc.add_paragraph(line)
 
-    # 将文档保存到内存流中，供 Streamlit 下载
+    # 保存到内存
     bio = io.BytesIO()
     doc.save(bio)
     return bio.getvalue()
