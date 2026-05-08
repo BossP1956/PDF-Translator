@@ -8,8 +8,8 @@ st.title("📄 MinerU PDF 保持格式在线翻译")
 
 # 侧边栏
 with st.sidebar:
-    st.header("1. API Key 配置")
-    m_key = st.text_input("MinerU API Token", type="password")
+    st.header("API 配置")
+    st.info("Agent 模式通常无需 MinerU Token，直接上传即可")
     b_id = st.text_input("Baidu AppID", type="password")
     b_key = st.text_input("Baidu SecretKey", type="password")
     
@@ -21,13 +21,12 @@ with st.sidebar:
 uploaded_file = st.file_uploader("点击上传 PDF 文件", type="pdf")
 
 # app.py 关键片段不需要大改，确保逻辑如下：
-if st.button("🚀 开始解析并翻译") and uploaded_file:
-    with st.status("正在调用 MinerU v4 高级解析引擎...") as status:
-        md_content = parse_pdf_via_api(uploaded_file, m_key)
-        if not md_content or "失败" in md_content or "异常" in md_content:
-            st.error(md_content)
-            st.stop()
-        status.update(label="文档解析并提取成功！开始翻译...", state="complete")
+if st.button("🚀 开始翻译"):
+    with st.spinner("正在通过 Agent 接口极速解析..."):
+        md_content = parse_pdf_via_api(uploaded_file) # 调用上面的新版函数
+    if "失败" in md_content or "异常" in md_content:
+        st.error(md_content)
+    else:    
     
     # 后续翻译逻辑保持不变...
 
