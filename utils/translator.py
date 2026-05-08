@@ -21,9 +21,9 @@ def baidu_translate(text, appid, secret_key, from_lang='auto', to_lang='zh'):
         if "trans_result" in res:
             return "\n".join([item['dst'] for item in res['trans_result']])
         else:
-            # 记录错误原因
-            error_code = res.get("error_code")
-            if error_code == "54003": return "[频率限制] " + text
-            return f"[翻译错误 {error_code}] " + text
-    except:
-        return text # 报错则返回原文
+            # 返回原文并带上错误码，防止破坏页面
+            err = res.get('error_code', '未知')
+            if err == "54003": return f"[百度API请求过快] {text}"
+            return text
+    except Exception:
+        return text
