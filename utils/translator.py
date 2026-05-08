@@ -2,39 +2,44 @@ import hashlib
 import random
 import requests
 import re
-import time
 
 def mask_markdown(md_text):
     """
-    使用全角中文括号标识符，顺序极度重要：从大块到小块。
+    终极保护掩码：
+    1. 不含下划线 _，防止被 Markdown 误认为斜体
+    2. 不含括号，防止百度擅自将其转为半角或破坏
+    3. 顺序：必须先遮罩最大的 $$ 块，防止公式内部的 \begin 被撕碎
     """
     placeholders = {}
     counter = 0
 
     def replacer(match):
         nonlocal counter
-        # 保持格式高度独特
-        key = f"【PH_{counter}】" 
-        placeholders[counter] = match.group(0) # 以数字作为 Key 存储原始对象
+        # 使用特殊符号 + 大写字母 + 数字，前后加空格
+        key = f" ❖X{counter}X❖ "
+        placeholders[counter] = match.group(0) # 以整数作为 Key，防止字符编码比对失败
         counter += 1
-        return f" {key} " # 前后留空格防止被翻译引擎合并到单词中
+        return key
 
     # 1. 保护代码块
     md_text = re.sub(r'```.*?```', replacer, md_text, flags=re.DOTALL)
     
-    # 2. 保护复杂 LaTeX 环境 (\begin{...} ... \end{...})
-    md_text = re.sub(r'\\begin\{.*?\}.*?\\end\{.*?\}', replacer, md_text, flags=re.DOTALL)
-    
-    # 3. 保护块级公式 ($$ ... $$)
+    # 2. 保护大块公式 $$ ... $$ (最优先！防止内部矩阵被撕碎)
     md_text = re.sub(r'\$\$.*?\$\$', replacer, md_text, flags=re.DOTALL)
     
-    # 4. 保护行内公式 ($ ... $) - 注意排除 $$
+    # 3. 保护行间公式 \[ ... \] (MinerU 偶尔会用这个格式)
+    md_text = re.sub(r'\\\[.*?\\\]', replacer, md_text, flags=re.DOTALL)
+    
+    # 4. 保护孤立的 LaTeX 环境
+    md_text = re.sub(r'\\begin\{.*?\}.*?\\end\{.*?\}', replacer, md_text, flags=re.DOTALL)
+    
+    # 5. 保护行内公式 $ ... $
     md_text = re.sub(r'(?<!\$)\$.*?\$(?!\$)', replacer, md_text)
     
-    # 5. 保护图片 ![alt](url)
+    # 6. 保护图片 ![alt](url)
     md_text = re.sub(r'!\[.*?\]\(.*?\)', replacer, md_text)
     
-    # 6. 保护 HTML 标签
+    # 7. 保护 HTML 标签
     md_text = re.sub(r'<.*?>', replacer, md_text, flags=re.DOTALL)
 
     return md_text, placeholders
@@ -42,31 +47,21 @@ def mask_markdown(md_text):
 def unmask_markdown(text, placeholders):
     """
     超级容错还原逻辑：
-    无论百度把标识符变成了 【PH_1】、 [ph_1]、 ( PH - 1 ) 还是 【 PH _ 1 】，
-    该正则都能精准定位中间的数字并还原。
+    无论百度把掩码变成 '❖X2 20X❖', '❖ x 5 x ❖', 甚至去掉了空格，全都能认出来！
     """
-    # 这个正则匹配：
-    # 1. 左括号：【 或 [ 或 (
-    # 2. 任意空格
-    # 3. 字母：PH 或 ph
-    # 4. 任意空格
-    # 5. 连接符：_ 或 - 或 没有任何符号
-    # 6. 任意空格
-    # 7. 目标数字：(\d+)
-    # 8. 任意空格
-    # 9. 右括号：】 或 ] 或 )
-    pattern = re.compile(r'[【\[\(]\s*[Pp][Hh][\s\-_]*(\d+)\s*[】\]\)]')
+    # 匹配: ❖ + 任意空格 + X或x + 任意空格 + (带空格的数字) + 任意空格 + X或x + 任意空格 + ❖
+    pattern = re.compile(r'❖\s*[Xx]\s*(\d[\d\s]*)\s*[Xx]\s*❖')
     
     def recover(match):
         try:
-            # 提取中间的数字索引
-            idx = int(match.group(1))
-            # 从字典中找回原始公式，如果找不到则返回匹配到的原样（防止程序崩溃）
+            # 提取中间的数字，去掉百度强加的空格 (比如 '2 20' -> '220')
+            idx_str = match.group(1).replace(' ', '')
+            idx = int(idx_str)
+            # 找回原始公式
             return placeholders.get(idx, match.group(0))
         except:
             return match.group(0)
 
-    # 执行替换
     return pattern.sub(recover, text)
 
 def baidu_translate(text, appid, secret_key, from_lang='auto', to_lang='zh'):
@@ -77,7 +72,7 @@ def baidu_translate(text, appid, secret_key, from_lang='auto', to_lang='zh'):
     params = {'q': text, 'from': from_lang, 'to': to_lang, 'appid': appid, 'salt': salt, 'sign': sign}
     
     try:
-        r = requests.get(endpoint, params=params, timeout=20).json()
+        r = requests.get(endpoint, params=params, timeout=15).json()
         if "trans_result" in r:
             return "\n".join([item['dst'] for item in r['trans_result']])
         return text
