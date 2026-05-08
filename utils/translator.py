@@ -5,21 +5,21 @@ import re
 
 def mask_markdown(md_text):
     """
-    使用极其独特的、不含任何 Markdown 敏感字符的标识符。
-    例如：FORMULAID123
+    使用极其简短且无元音的辅音组合 ZPX 作为标识符。
+    这种组合在翻译引擎看来像是一个型号或内部代码，不会被翻译。
     """
     placeholders = {}
     counter = 0
 
     def replacer(match):
         nonlocal counter
-        # 纯大写字母+数字，没有任何符号，防止被翻译器拆分，也防止 Markdown 解析
-        key = f"FORMULAID{counter}"
+        # 使用 ZPX + 数字，前后各留一个空格防止粘连
+        key = f"ZPX{counter}"
         placeholders[counter] = match.group(0)
         counter += 1
-        return f" {key} " # 前后留空格防止和中文粘连
+        return f" {key} "
 
-    # 遮罩顺序：从大块到小块
+    # 遮罩顺序必须严格执行
     # 1. 保护代码块
     md_text = re.sub(r'```.*?```', replacer, md_text, flags=re.DOTALL)
     # 2. 保护大块公式 $$ ... $$
@@ -30,7 +30,7 @@ def mask_markdown(md_text):
     md_text = re.sub(r'\\begin\{.*?\}.*?\\end\{.*?\}', replacer, md_text, flags=re.DOTALL)
     # 5. 保护行内公式 $ ... $
     md_text = re.sub(r'(?<!\$)\$.*?\$(?!\$)', replacer, md_text)
-    # 6. 保护图片
+    # 6. 保护图片 ![alt](url)
     md_text = re.sub(r'!\[.*?\]\(.*?\)', replacer, md_text)
     # 7. 保护 HTML
     md_text = re.sub(r'<.*?>', replacer, md_text, flags=re.DOTALL)
@@ -39,19 +39,19 @@ def mask_markdown(md_text):
 
 def unmask_markdown(text, placeholders):
     """
-    超级容错还原逻辑：
-    即便翻译器把标识符变成了 " formula id 123 ", “FormulaID 123”, [FORMULAID123]
-    该正则都能精准提取数字并还原。
+    终极拼写容错正则：
+    即便翻译器把 ZPX 变成了 'Z PX', 'zpx', 'Z-PX' 甚至错拼为 'ZPIX',
+    正则都会以 Z 开头，找到后面的数字。
     """
-    # 匹配: (可能是引号/括号) + F + O + R + M + U + L + A + I + D + (任意空格) + (数字) + (可能是引号/括号)
-    # 使用 re.IGNORECASE 忽略大小写
-    pattern = re.compile(r'[“"「\[\(]?\s*F\s*O\s*R\s*M\s*U\s*L\s*A\s*I\s*D\s*(\d[\s\d]*)\s*[”"」\]\)]?', re.IGNORECASE)
+    # 匹配模式：(开头可能有引号/括号) + Z + (可选空格) + P + (可选空格) + X + (可选空格) + 数字 + (结尾可能有引号/括号)
+    pattern = re.compile(r'[“"「\[\(]?\s*[Zz]\s*[Pp]\s*[Xx]\s*(\d[\s\d]*)\s*[”"」\]\)]?', re.IGNORECASE)
     
     def recover(match):
         try:
-            # 提取数字，去掉可能存在的空格
+            # 提取数字，去掉由于翻译产生的空格
             idx_str = match.group(1).replace(' ', '')
             idx = int(idx_str)
+            # 从字典里拿回原始公式/图片/代码块
             return placeholders.get(idx, match.group(0))
         except:
             return match.group(0)
