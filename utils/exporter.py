@@ -4,26 +4,26 @@ import re
 
 def clean_latex_math(md_text):
     """
-    工业级 LaTeX 洗白，解决 MinerU 识别的所有疑难杂症。
+    LaTeX 语法终极洗白，解决所有 Pandoc [WARNING]。
     """
-    # 1. 修复 \bf -> \mathbf
+    # 1. 修复过时的 \bf -> \mathbf
     md_text = re.sub(r'\{\\bf\s+(.*?)\}', r'\\mathbf{\1}', md_text)
     md_text = md_text.replace(r'\bf ', r'\mathbf ')
 
-    # 2. 核心：修复破碎的 \left 和 \right
+    # 2. 强制修复配对符号: \left\\ -> \left[
     md_text = md_text.replace(r'\left\\', r'\left[').replace(r'\right\\', r'\right]')
-    # 修复 OCR 常见的双重括号
     md_text = md_text.replace(r'\left\left[', r'\left[').replace(r'\right\right]', r'\right]')
     
-    # 3. 修复矩阵对齐空格
-    def fix_array(match):
-        return f'{{array}}{{{match.group(1).replace(" ", "")}}}'
-    md_text = re.sub(r'\{array\}\{(.*?)\}', fix_array, md_text)
+    # 3. 修复对齐语法: {c c c} -> {ccc}
+    def fix_array_align(match):
+        align = match.group(1).replace(' ', '')
+        return f'{{array}}{{{align}}}'
+    md_text = re.sub(r'\{array\}\{(.*?)\}', fix_array_align, md_text)
 
-    # 4. 移除 \tag，防止 Word 公式溢出
+    # 4. 移除会卡死 Word 渲染的 \tag
     md_text = re.sub(r'\\tag\{.*?\}', '', md_text)
     
-    # 5. 修复不合法的连写
+    # 5. 修复非法连字符
     md_text = md_text.replace(r'\left.', r'\left[').replace(r'\right.', r'\right]')
     
     return md_text
@@ -43,7 +43,7 @@ def generate_word(md_path, output_docx_path, working_dir):
     with open(md_path, 'w', encoding='utf-8') as f:
         f.write(cleaned)
 
-    # Pandoc 转换（开启所有公式引擎支持）
+    # Pandoc 深度转换
     pypandoc.convert_file(
         md_path, 
         'docx', 
